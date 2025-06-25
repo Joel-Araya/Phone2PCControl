@@ -1,5 +1,6 @@
 package com.example.pckeyboardmousecontroller
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -35,7 +36,14 @@ import com.example.pckeyboardmousecontroller.ui.theme.PCKeyboardMouseControllerT
 
 
 @Composable
-fun TouchpadAreaWithDisplay(modifier: Modifier = Modifier) {
+fun TouchpadAreaWithDisplay(
+    modifier: Modifier = Modifier,
+    onBack: () -> Unit // ← también aquí
+) {
+    BackHandler {
+        onBack()
+    }
+
     var dx by remember { mutableStateOf(0f) }
     var dy by remember { mutableStateOf(0f) }
     var isDragMode by remember { mutableStateOf(false) }
@@ -204,7 +212,7 @@ fun TouchpadAreaWithDisplay(modifier: Modifier = Modifier) {
 @Composable
 fun TouchpadPreview() {
     PCKeyboardMouseControllerTheme {
-        TouchpadAreaWithDisplay()
+        TouchpadAreaWithDisplay(onBack = {})
     }
 }
 

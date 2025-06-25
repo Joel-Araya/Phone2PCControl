@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.launch
+import androidx.activity.compose.BackHandler
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,10 +60,15 @@ class MainActivity : ComponentActivity() {
                             }
                         )
 
-                        "manual" -> ManualConnectionScreen {
-                            currentScreen = "control"
-                        }
-                        "control" -> TouchpadAreaWithDisplay(modifier = Modifier.padding(innerPadding))
+                        "manual" -> ManualConnectionScreen(
+                            onConnect = { currentScreen = "control" },
+                            onBack = { currentScreen = "menu" }
+                        )
+
+                        "control" -> TouchpadAreaWithDisplay(
+                            modifier = Modifier.padding(innerPadding),
+                            onBack = { currentScreen = "menu" }
+                        )
                     }
                 }
             }
@@ -133,7 +139,13 @@ fun ConnectionSelectionScreen(
 
 
 @Composable
-fun ManualConnectionScreen(onConnect: () -> Unit) {
+fun ManualConnectionScreen(
+    onConnect: () -> Unit,
+    onBack: () -> Unit
+){
+    BackHandler {
+        onBack()
+    }
     var ip by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("5050") }
     val context = LocalContext.current
