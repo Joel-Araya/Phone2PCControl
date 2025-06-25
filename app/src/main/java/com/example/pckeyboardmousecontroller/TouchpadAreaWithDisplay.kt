@@ -33,9 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.pckeyboardmousecontroller.ui.theme.PCKeyboardMouseControllerTheme
 
-class area_pc_controller {
-}
-
 
 @Composable
 fun TouchpadAreaWithDisplay(modifier: Modifier = Modifier) {
