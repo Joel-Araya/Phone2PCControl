@@ -6,66 +6,94 @@ import kotlinx.coroutines.channels.Channel
 import java.io.OutputStream
 import java.net.Socket
 
-sealed class MouseMessage {
-    data class Move(val dx: Float, val dy: Float): MouseMessage()
-    data class Click(val button: String): MouseMessage()
-    data class Key(val key: String): MouseMessage()
-}
-
 object MouseClient {
     private var output: OutputStream? = null
     private var socket: Socket? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val moveChannel = Channel<Pair<Float, Float>>(Channel.CONFLATED)
-    private val scrollChannel = Channel<Float>(Channel.CONFLATED) // NUEVO: canal para scroll
+    private val scrollChannel = Channel<Float>(Channel.CONFLATED)
+
+    private var ipAddress: String = ""
+    private var portNumber: Int = 5050
+    private var isConnected = false
 
     fun connect(ip: String, port: Int = 5050) {
+        ipAddress = ip
+        portNumber = port
+
         scope.launch {
-            try {
-                socket = Socket(ip, port)
-                output = socket?.getOutputStream()
-                Log.d("MouseClient", "Conectado a $ip:$port")
-
-                // Movimiento del mouse
-                launch {
-                    for ((dx, dy) in moveChannel) {
-                        sendMoveInternal(dx, dy)
+            while (true) {
+                try {
+                    if (!isConnected) {
+                        Log.d("MouseClient", "Intentando conectar a $ip:$port...")
+                        socket = Socket(ip, port)
+                        output = socket?.getOutputStream()
+                        isConnected = true
+                        Log.d("MouseClient", "Conectado a $ip:$port")
                     }
-                }
 
-                // Scroll del mouse
-                launch {
-                    for (dy in scrollChannel) {
-                        sendScrollInternal(dy)
+                    // Start listeners solo si acaba de conectar
+                    launch {
+                        for ((dx, dy) in moveChannel) {
+                            sendMoveInternal(dx, dy)
+                        }
                     }
-                }
 
-            } catch (e: Exception) {
-                Log.e("MouseClient", "Error al conectar: ${e.message}")
+                    launch {
+                        for (dy in scrollChannel) {
+                            sendScrollInternal(dy)
+                        }
+                    }
+
+                    // Ya conectado, salimos del ciclo de reconexión
+                    break
+
+                } catch (e: Exception) {
+                    isConnected = false
+                    Log.e("MouseClient", "Error al conectar: ${e.message}")
+                    delay(3000) // Esperar antes de reintentar 3 segundos
+                }
             }
         }
     }
 
+    private fun resetConnection() {
+        try {
+            output?.close()
+            socket?.close()
+        } catch (_: Exception) {}
+        output = null
+        socket = null
+        isConnected = false
+        connect(ipAddress, portNumber) // reintenta conexión
+    }
+
     private fun sendMoveInternal(dx: Float, dy: Float) {
         try {
-            val json = """{"type":"move","dx":$dx,"dy":$dy}""" + "\n"
-            output?.write(json.toByteArray())
-            output?.flush()
-            Log.d("MouseClient", "Enviado movimiento dx=$dx dy=$dy")
+            if (isConnected) {
+                val json = """{"type":"move","dx":$dx,"dy":$dy}""" + "\n"
+                output?.write(json.toByteArray())
+                output?.flush()
+                Log.d("MouseClient", "Enviado movimiento dx=$dx dy=$dy")
+            }
         } catch (e: Exception) {
             Log.e("MouseClient", "Error enviando movimiento: ${e.message}")
+            resetConnection()
         }
     }
 
     private fun sendScrollInternal(dy: Float) {
         try {
-            val json = """{"type":"scroll","dy":$dy}""" + "\n"
-            output?.write(json.toByteArray())
-            output?.flush()
-            Log.d("MouseClient", "Enviado scroll dy=$dy")
+            if (isConnected) {
+                val json = """{"type":"scroll","dy":$dy}""" + "\n"
+                output?.write(json.toByteArray())
+                output?.flush()
+                Log.d("MouseClient", "Enviado scroll dy=$dy")
+            }
         } catch (e: Exception) {
             Log.e("MouseClient", "Error enviando scroll: ${e.message}")
+            resetConnection()
         }
     }
 
