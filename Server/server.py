@@ -7,6 +7,7 @@ from pynput.keyboard import Controller as KeyboardController, Key
 
 HOST = '0.0.0.0'
 PORT = 5050
+DISCOVERY_PORT = 5051  # Puerto para discovery UDP
 FACTOR = 5  # Ajusta la velocidad de movimiento aquí
 FACTOR_SCROLL = 10  # Factor de scroll, puedes ajustarlo si es necesario
 
@@ -24,7 +25,7 @@ MOUSE_BUTTONS = {
 KEYS = {
     "ctrl": Key.ctrl,
     "alt": Key.alt,
-    "altgr": Key.alt_r,      # Aquí añades AltGr
+    "altgr": Key.alt_r,
     "shift": Key.shift,
     "enter": Key.enter,
     "esc": Key.esc,
@@ -35,12 +36,11 @@ KEYS = {
     "down": Key.down,
     "left": Key.left,
     "right": Key.right,
-    "win": Key.cmd if hasattr(Key, "cmd") else Key.cmd_l,  # Usar Key.cmd si está disponible, de lo contrario Key.cmd_l
+    "win": Key.cmd if hasattr(Key, "cmd") else Key.cmd_l,
 }
 
-ONE_SHOT_KEYS = {Key.esc, Key.enter, Key.tab, Key.backspace, Key.space, Key.up, Key.down, Key.left, Key.right}  # Teclas de un solo uso
+ONE_SHOT_KEYS = {Key.esc, Key.enter, Key.tab, Key.backspace, Key.space, Key.up, Key.down, Key.left, Key.right}
 pressed_keys = set()  # Mantiene las teclas especiales actualmente presionadas
-
 
 class MouseMover:
     def __init__(self, factor=1):
@@ -77,18 +77,15 @@ def handle_client(conn, addr, mover: MouseMover):
     try:
         while True:
             data = conn.recv(1024)
-            #print(f"Datos recibidos: {data}")
             if not data:
                 break
             buffer += data.decode()
 
-            # Mientras haya una línea completa (terminada en '\n'), la procesamos
             while '\n' in buffer:
-                line, buffer = buffer.split('\n', 1)  # Separamos la primera línea del buffer
-                line = line.strip()  # Limpiar espacios en blanco
-
+                line, buffer = buffer.split('\n', 1)
+                line = line.strip()
                 if not line:
-                    continue  # Ignorar líneas vacías
+                    continue
 
                 try:
                     msg = json.loads(line)
@@ -99,32 +96,27 @@ def handle_client(conn, addr, mover: MouseMover):
                         dx = float(msg.get("dx", 0))
                         dy = float(msg.get("dy", 0))
                         mover.add_movement(dx, dy)
-                    
+
                     elif tipo == "scroll":
-                        dy = float(msg.get("dy", 0)) * FACTOR_SCROLL  # Ajusta el factor de scroll
-                        mouse.scroll(0, int(dy))  # Scroll vertical
+                        dy = float(msg.get("dy", 0)) * FACTOR_SCROLL
+                        mouse.scroll(0, int(dy))
                         print(f"Scroll: {dy}")
 
                     elif tipo == "click":
                         button_str = msg.get("key", "").lower()
-
                         if button_str in MOUSE_BUTTONS:
-                            button = MOUSE_BUTTONS[button_str]  # Aseguramos que el botón esté asignado correctamente
-
+                            button = MOUSE_BUTTONS[button_str]
                             action = msg.get("action", "").lower()
-                            print(f"Acción del botón: {action}, es acción válida: {action in ['click', 'arrastre']}")
-
+                            print(f"Acción del botón: {action}, válida: {action in ['click', 'arrastre']}")
                             if action == "arrastre":
                                 mouse.press(button)
                                 print(f"Presionado (arrastre): {button_str}")
                             else:
                                 mouse.click(button)
                                 print(f"Click normal (presionar y soltar): {button_str}")
-
                             print(f"Click con botón: {button_str}")
                         else:
                             print(f"Botón no reconocido: {button_str}")
-
 
                     elif tipo == "key":
                         key_str = msg.get("key", "")
@@ -134,8 +126,6 @@ def handle_client(conn, addr, mover: MouseMover):
                             print(f"Tecla: {key_str}")
                         else:
                             print(f"Tecla normal no válida: {key_str}")
-
-                    
 
                     elif tipo == "skey":
                         key_str = msg.get("key", "")
@@ -157,7 +147,6 @@ def handle_client(conn, addr, mover: MouseMover):
                         else:
                             print(f"❌ Tecla especial no reconocida: {key_str}")
 
-
                 except json.JSONDecodeError:
                     print("JSON inválido recibido:", line)
 
@@ -165,15 +154,47 @@ def handle_client(conn, addr, mover: MouseMover):
         print(f"Error en conexión con {addr}: {e}")
     finally:
         conn.close()
-        #print(f"Conexión cerrada: {addr}")
 
+def get_local_ip():
+    try:
+        # Crea un socket falso para obtener la IP local
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))  # no envía datos
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
+def udp_discovery_service():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('', DISCOVERY_PORT))
+    print(f"Servicio UDP de descubrimiento escuchando en puerto {DISCOVERY_PORT}...")
+
+    while True:
+        try:
+            data, addr = sock.recvfrom(1024)
+            message = data.decode().strip()
+            print(f"Mensaje UDP recibido de {addr}: {message}")
+            if message == "DISCOVER_REQUEST":
+                # Responde con la IP y puerto TCP donde se encuentra el servidor
+                server_ip = get_local_ip()
+                response = f"DISCOVER_RESPONSE:{server_ip}:{PORT}"
+                sock.sendto(response.encode(), addr)
+                print(f"Respondido a {addr} con {response}")
+        except Exception as e:
+            print(f"Error en servicio UDP de descubrimiento: {e}")
 
 def main():
     mover = MouseMover(factor=FACTOR)
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
     server.listen(5)
-    print(f"Servidor escuchando en {HOST}:{PORT}...")
+    print(f"Servidor TCP escuchando en {HOST}:{PORT}...")
+
+    # Iniciar hilo para servicio UDP discovery
+    discovery_thread = threading.Thread(target=udp_discovery_service, daemon=True)
+    discovery_thread.start()
 
     try:
         while True:
